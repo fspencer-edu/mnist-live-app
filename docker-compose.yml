@@ -1,0 +1,7 @@
+services:
+  mnist-api:
+    build:
+      context: ./backend
+    container_name: mnnist-app
+    ports:
+      - "8000:8000"

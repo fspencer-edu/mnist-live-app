@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MNIST Digit Drawer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+      background: #111;
+      color: #eee;
+      text-align: center;
+    }
+
+    canvas {
+      border: 2px solid #888;
+      background: white;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .row {
+      margin-top: 16px;
+    }
+
+    button {
+      padding: 10px 16px;
+      margin: 6px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .bars {
+      width: 320px;
+      margin: 20px auto;
+      text-align: left;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      margin: 6px 0;
+      gap: 8px;
+    }
+
+    .label {
+      width: 20px;
+    }
+
+    .bar-wrap {
+      flex: 1;
+      height: 22px;
+      background: #333;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      background: #4caf50;
+      width: 0%;
+      color: black;
+      font-size: 12px;
+      line-height: 22px;
+      padding-left: 6px;
+      box-sizing: border-box;
+      white-space: nowrap;
+    }
+
+    .prediction {
+      margin-top: 20px;
+      font-size: 22px;
+    }
+  </style>
+</head>
+<body>
+  <h1>MNIST Drawing App</h1>
+  <p>Draw a digit from 0 to 9</p>
+
+  <canvas id="canvas" width="280" height="280"></canvas>
+
+  <div class="row">
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <div class="prediction">
+    Prediction: <strong id="predicted-digit">-</strong><br />
+    Confidence: <strong id="confidence">-</strong>
+  </div>
+
+  <div class="bars" id="bars"></div>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const clearBtn = document.getElementById("clearBtn");
+    const predictedDigit = document.getElementById("predicted-digit");
+    const confidenceEl = document.getElementById("confidence");
+    const barsContainer = document.getElementById("bars");
+
+    let drawing = false;
+    let timeoutId = null;
+
+    function setupCanvas() {
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 18;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "black";
+    }
+
+    function createBars() {
+      for (let i = 0; i <= 9; i++) {
+        const row = document.createElement("div");
+        row.className = "bar-row";
+
+        const label = document.createElement("div");
+        label.className = "label";
+        label.textContent = i;
+
+        const wrap = document.createElement("div");
+        wrap.className = "bar-wrap";
+
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.id = `bar-${i}`;
+
+        wrap.appendChild(bar);
+        row.appendChild(label);
+        row.appendChild(wrap);
+        barsContainer.appendChild(row);
+      }
+    }
+
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (e.touches && e.touches.length > 0) {
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top
+        };
+      }
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
+    function startDrawing(e) {
+      drawing = true;
+      const pos = getPos(e);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      e.preventDefault();
+    }
+
+    function draw(e) {
+      if (!drawing) return;
+      const pos = getPos(e);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      schedulePrediction();
+      e.preventDefault();
+    }
+
+    function stopDrawing() {
+      drawing = false;
+      ctx.beginPath();
+    }
+
+    async function schedulePrediction() {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(runPrediction, 180);
+    }
+
+    async function runPrediction() {
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      const formData = new FormData();
+      formData.append("file", blob, "digit.png");
+
+      try {
+        const response = await fetch("/predict", {
+          method: "POST",
+          body: formData
+        });
+
+        const result = await response.json();
+
+        predictedDigit.textContent = result.predicted_digit;
+        confidenceEl.textContent = `${(result.confidence * 100).toFixed(1)}%`;
+
+        for (let i = 0; i <= 9; i++) {
+          const value = result.probabilities[String(i)] || 0;
+          const bar = document.getElementById(`bar-${i}`);
+          bar.style.width = `${value * 100}%`;
+          bar.textContent = `${(value * 100).toFixed(1)}%`;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    clearBtn.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      setupCanvas();
+      predictedDigit.textContent = "-";
+      confidenceEl.textContent = "-";
+      for (let i = 0; i <= 9; i++) {
+        const bar = document.getElementById(`bar-${i}`);
+        bar.style.width = "0%";
+        bar.textContent = "";
+      }
+    });
+
+    canvas.addEventListener("mousedown", startDrawing);
+    canvas.addEventListener("mousemove", draw);
+    window.addEventListener("mouseup", stopDrawing);
+
+    canvas.addEventListener("touchstart", startDrawing, { passive: false });
+    canvas.addEventListener("touchmove", draw, { passive: false });
+    window.addEventListener("touchend", stopDrawing);
+
+    setupCanvas();
+    createBars();
+  </script>
+</body>
+</html>
